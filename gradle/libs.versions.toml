@@ -77,7 +77,6 @@ tensorflow-lite            = { group = "org.tensorflow", name = "tensorflow-lite
 tensorflow-lite-gpu        = { group = "org.tensorflow", name = "tensorflow-lite-gpu",          version.ref = "tensorflow" }
 
 # OpenCV
-opencv-android = { group = "com.quickbirdstudios", name = "opencv", version = "4.5.5.0" }
 
 # Coil
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }

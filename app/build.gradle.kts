@@ -95,7 +95,6 @@ dependencies {
     implementation(libs.mlkit.face.mesh)
     implementation(libs.tensorflow.lite)
     implementation(libs.tensorflow.lite.gpu)
-    implementation(libs.opencv.android)
     implementation(libs.datastore.preferences)
     implementation(libs.work.runtime.ktx)
     implementation(libs.hilt.work)
