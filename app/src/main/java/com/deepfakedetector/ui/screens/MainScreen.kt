@@ -68,14 +68,20 @@ fun MainScreen(
         initialUri?.let { viewModel.analyzeContent(it) }
     }
 
-    // Observer résultat vidéo
+    // Observer résultat vidéo — on vide après navigation pour éviter la boucle
     LaunchedEffect(uiState.result) {
-        uiState.result?.let { onResultReady(it) }
+        uiState.result?.let {
+            onResultReady(it)
+            viewModel.clearResult()
+        }
     }
 
-    // Observer résultat image
+    // Observer résultat image — on vide après navigation pour éviter la boucle
     LaunchedEffect(uiState.imageResult) {
-        uiState.imageResult?.let { onImageResultReady(it) }
+        uiState.imageResult?.let {
+            onImageResultReady(it)
+            viewModel.clearResult()
+        }
     }
 
     Scaffold(
@@ -517,7 +523,6 @@ fun AnalysisProgressContent(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Scan animation
         Box(
             modifier = Modifier
                 .size(120.dp)
@@ -563,7 +568,6 @@ fun AnalysisProgressContent(
 
         Spacer(Modifier.height(24.dp))
 
-        // Progress bar
         LinearProgressIndicator(
             progress = { stepProgress },
             modifier = Modifier
@@ -582,7 +586,6 @@ fun AnalysisProgressContent(
 
         Spacer(Modifier.height(24.dp))
 
-        // Steps complétés
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(6.dp)
