@@ -61,12 +61,14 @@ fun AppNavGraph(
                 onResultReady    = { result ->
                     videoResults[result.videoId] = result
                     navController.navigate(Screen.Result.createRoute(result.videoId)) {
+                        popUpTo(Screen.Main.route) { inclusive = false }
                         launchSingleTop = true
                     }
                 },
                 onImageResultReady = { imageResult ->
                     imageResults[imageResult.imageId] = imageResult
                     navController.navigate(Screen.ImageResult.createRoute(imageResult.imageId)) {
+                        popUpTo(Screen.Main.route) { inclusive = false }
                         launchSingleTop = true
                     }
                 },
@@ -152,6 +154,7 @@ fun AppNavGraph(
                 onResultReady  = { result ->
                     multiModalResults[result.id] = result
                     navController.navigate(Screen.MultiModalResult.createRoute(result.id)) {
+                        popUpTo(Screen.MultiModal.route) { inclusive = false }
                         launchSingleTop = true
                     }
                 }
