@@ -169,12 +169,11 @@ class ImageAnalyzer @Inject constructor(
             }
         }
         val avgVariance = if (count > 0) localVarianceSum / count else 0.0
-        // Très faible variance locale → image trop lisse → score fake élevé
         return when {
-            avgVariance < 5.0   -> 0.85f   // trop lisse
+            avgVariance < 5.0   -> 0.85f
             avgVariance < 15.0  -> 0.65f
-            avgVariance < 40.0  -> 0.35f   // naturel
-            else                -> 0.20f   // beaucoup de bruit → probablement réel
+            avgVariance < 40.0  -> 0.35f
+            else                -> 0.20f
         }
     }
 
@@ -184,7 +183,6 @@ class ImageAnalyzer @Inject constructor(
         val pixels = IntArray(64 * 64)
         small.getPixels(pixels, 0, 64, 0, 0, 64, 64)
 
-        // Calcul des différences horizontales et verticales (approximation spectrale)
         var hDiffSum = 0.0; var vDiffSum = 0.0
         var hPeriodCount = 0; var vPeriodCount = 0
 
@@ -193,7 +191,6 @@ class ImageAnalyzer @Inject constructor(
             for (x in 1 until 63) {
                 val diff = grayValue(pixels[y * 64 + x]) - grayValue(pixels[y * 64 + x - 1])
                 hDiffSum += abs(diff)
-                // Détecter alternance régulière (signe GAN upsampling)
                 if (diff > 0 && prevDiff < 0 || diff < 0 && prevDiff > 0) hPeriodCount++
                 prevDiff = diff
             }
@@ -211,7 +208,6 @@ class ImageAnalyzer @Inject constructor(
         val hPeriodRatio = hPeriodCount.toFloat() / totalPixels
         val vPeriodRatio = vPeriodCount.toFloat() / totalPixels
 
-        // Ratio élevé d'alternances régulières → artéfact upsampling
         return ((hPeriodRatio + vPeriodRatio) / 2f).coerceIn(0f, 1f)
     }
 
@@ -233,11 +229,11 @@ class ImageAnalyzer @Inject constructor(
         }
         val avgGradient = if (count > 0) gradientSum / count else 0.0
         return when {
-            avgGradient < 3.0  -> 0.90f   // extrêmement lisse → IA
+            avgGradient < 3.0  -> 0.90f
             avgGradient < 8.0  -> 0.70f
             avgGradient < 15.0 -> 0.45f
             avgGradient < 25.0 -> 0.30f
-            else               -> 0.15f   // beaucoup de texture → réel
+            else               -> 0.15f
         }
     }
 
@@ -261,7 +257,6 @@ class ImageAnalyzer @Inject constructor(
         }
         val total = sharpEdges + blurryEdges
         if (total == 0) return 0.3f
-        // Trop peu de bords nets par rapport aux bords flous → suspect
         val sharpRatio = sharpEdges.toFloat() / total
         return if (sharpRatio < 0.15f) 0.75f else 0.3f
     }
@@ -278,12 +273,10 @@ class ImageAnalyzer @Inject constructor(
         val pixels = IntArray(64 * 64)
         small.getPixels(pixels, 0, 64, 0, 0, 64, 64)
 
-        // ── Histogramme de luminance ──────────────────────────────────────
         val histogram = IntArray(256)
         pixels.forEach { histogram[grayValue(it)]++ }
         val total = pixels.size.toFloat()
 
-        // Entropie de Shannon
         var entropy = 0.0
         histogram.forEach { count ->
             if (count > 0) {
@@ -294,7 +287,6 @@ class ImageAnalyzer @Inject constructor(
         val maxEntropy = ln(256.0)
         val normalizedEntropy = (entropy / maxEntropy).toFloat()
 
-        // Entropie trop basse → image sur-compressée ou synthétique
         val entropyScore = when {
             normalizedEntropy < 0.55f -> 0.80f
             normalizedEntropy < 0.70f -> 0.55f
@@ -311,7 +303,6 @@ class ImageAnalyzer @Inject constructor(
         }
         details.add("Entropie : ${"%.2f".format(normalizedEntropy)} (${if (normalizedEntropy > 0.75f) "naturelle" else "suspecte"})")
 
-        // ── Distribution des couleurs ─────────────────────────────────────
         var rSum = 0L; var gSum = 0L; var bSum = 0L
         var rSumSq = 0L; var gSumSq = 0L; var bSumSq = 0L
         pixels.forEach { px ->
@@ -326,9 +317,9 @@ class ImageAnalyzer @Inject constructor(
         val avgColorVariance = ((rVar + gVar + bVar) / 3).toFloat()
 
         val colorScore = when {
-            avgColorVariance < 200f  -> 0.75f  // trop uniforme
+            avgColorVariance < 200f  -> 0.75f
             avgColorVariance < 500f  -> 0.45f
-            else                     -> 0.20f  // variance naturelle
+            else                     -> 0.20f
         }
         if (colorScore > 0.6f) {
             anomalies.add(Anomaly(
@@ -359,7 +350,6 @@ class ImageAnalyzer @Inject constructor(
         val anomalies = mutableListOf<Anomaly>()
         val details   = mutableListOf<String>()
 
-        // ── Répétition de textures (motifs copier-coller IA) ─────────────
         val repetitionScore = detectTextureRepetition(bitmap)
         if (repetitionScore > 0.6f) {
             anomalies.add(Anomaly(
@@ -373,7 +363,6 @@ class ImageAnalyzer @Inject constructor(
             details.add("Répétition texture : non détectée")
         }
 
-        // ── Bords fantômes (halo de composition IA) ───────────────────────
         val haloScore = detectCompositionHalo(bitmap)
         if (haloScore > 0.55f) {
             anomalies.add(Anomaly(
@@ -385,7 +374,6 @@ class ImageAnalyzer @Inject constructor(
             details.add("Halo composition : détecté (${(haloScore * 100).toInt()}%)")
         }
 
-        // ── Symétrie excessive (visages synthétiques trop parfaits) ──────
         val symmetryScore = detectExcessiveSymmetry(bitmap)
         if (symmetryScore > 0.85f) {
             anomalies.add(Anomaly(
@@ -399,7 +387,6 @@ class ImageAnalyzer @Inject constructor(
             details.add("Symétrie : naturelle (${"%.0f".format(symmetryScore * 100)}%)")
         }
 
-        // ── Structures impossibles (arrière-plan incohérent) ─────────────
         val structureScore = detectImpossibleStructures(bitmap)
         if (structureScore > 0.5f) {
             anomalies.add(Anomaly(
@@ -412,7 +399,8 @@ class ImageAnalyzer @Inject constructor(
 
         val weights = floatArrayOf(0.40f, 0.25f, 0.20f, 0.15f)
         val scores  = floatArrayOf(repetitionScore, haloScore, symmetryScore, structureScore)
-        val finalScore = scores.zip(weights.toList()).sumOf { (s, w) -> (s * w).toDouble() }.toFloat()
+        // CORRECTION : scores.toList() pour pouvoir appeler .zip()
+        val finalScore = scores.toList().zip(weights.toList()).sumOf { (s, w) -> (s * w).toDouble() }.toFloat()
         val confidence = if (anomalies.size >= 2) 0.78f else 0.60f
 
         return ModuleScore(
@@ -428,7 +416,6 @@ class ImageAnalyzer @Inject constructor(
         val pixels = IntArray(32 * 32)
         small.getPixels(pixels, 0, 32, 0, 0, 32, 32)
 
-        // Divise en 4 quadrants, compare leurs histogrammes
         val q1 = histogramOf(pixels, 0,  0,  16, 16, 32)
         val q2 = histogramOf(pixels, 16, 0,  32, 16, 32)
         val q3 = histogramOf(pixels, 0,  16, 16, 32, 32)
@@ -439,7 +426,6 @@ class ImageAnalyzer @Inject constructor(
         val sim13 = histogramSimilarity(q1, q3)
         val avgSim = (sim12 + sim34 + sim13) / 3f
 
-        // Similarité trop élevée entre régions → motifs répétés
         return when {
             avgSim > 0.92f -> 0.85f
             avgSim > 0.82f -> 0.60f
@@ -454,10 +440,12 @@ class ImageAnalyzer @Inject constructor(
         val hist = FloatArray(32)
         var count = 0
         for (y in y0 until y1) for (x in x0 until x1) {
-            hist[grayValue(pixels[y * width + x]) / 8]++
+            // CORRECTION : += 1f au lieu de ++ (FloatArray ne supporte pas ++)
+            hist[grayValue(pixels[y * width + x]) / 8] += 1f
             count++
         }
-        if (count > 0) for (i in hist.indices) hist[i] /= count
+        // CORRECTION : count.toFloat() pour division Float/Float
+        if (count > 0) for (i in hist.indices) hist[i] /= count.toFloat()
         return hist
     }
 
@@ -472,7 +460,6 @@ class ImageAnalyzer @Inject constructor(
         val pixels = IntArray(64 * 64)
         small.getPixels(pixels, 0, 64, 0, 0, 64, 64)
 
-        // Compare la netteté centre vs bords
         val centerSharpness = sharpnessOf(pixels, 24, 24, 40, 40, 64)
         val edgeSharpness   = (
             sharpnessOf(pixels, 0, 0, 10, 64, 64) +
@@ -483,7 +470,7 @@ class ImageAnalyzer @Inject constructor(
 
         val ratio = if (edgeSharpness > 0) centerSharpness / edgeSharpness else 1f
         return when {
-            ratio > 5f  -> 0.80f  // centre très net, bords très flous → halo IA
+            ratio > 5f  -> 0.80f
             ratio > 3f  -> 0.60f
             ratio > 2f  -> 0.40f
             else        -> 0.20f
@@ -517,7 +504,6 @@ class ImageAnalyzer @Inject constructor(
             }
         }
         val avgDiff = if (count > 0) diffSum.toFloat() / count else 128f
-        // avgDiff faible → très symétrique
         return (1f - (avgDiff / 50f)).coerceIn(0f, 1f)
     }
 
@@ -526,7 +512,6 @@ class ImageAnalyzer @Inject constructor(
         val pixels = IntArray(48 * 48)
         small.getPixels(pixels, 0, 48, 0, 0, 48, 48)
 
-        // Détecte les lignes droites inconsistantes (perspective IA)
         var inconsistentLines = 0
         for (y in 1 until 47) {
             for (x in 1 until 47) {
@@ -552,7 +537,6 @@ class ImageAnalyzer @Inject constructor(
         val details   = mutableListOf<String>()
         var score     = 0f
 
-        // EXIF absent → fortement suspect pour une photo "réelle"
         if (!meta.hasExif) {
             score += 0.40f
             anomalies.add(Anomaly(
@@ -565,7 +549,6 @@ class ImageAnalyzer @Inject constructor(
         } else {
             details.add("EXIF : présent ✓")
 
-            // Pas de modèle de caméra
             if (meta.cameraModel == null) {
                 score += 0.25f
                 anomalies.add(Anomaly(
@@ -579,7 +562,6 @@ class ImageAnalyzer @Inject constructor(
                 details.add("Caméra : ${meta.cameraModel} ✓")
             }
 
-            // Software suspect
             val aiSoftwareSignatures = listOf(
                 "stable diffusion", "midjourney", "dalle", "generative",
                 "diffusion", "gan", "runway", "adobe firefly", "imagen"
@@ -686,7 +668,6 @@ class ImageAnalyzer @Inject constructor(
             weightSum     += weights["artifact"]!! * it.confidence
         }
         scores.metadataAnalysis?.let {
-            // Boost critique si signature IA dans EXIF
             val metaBoost = if (it.score > 0.7f) 2.0f else 1.0f
             scoreSum      += it.score      * weights["meta"]!! * it.confidence * metaBoost
             confidenceSum += it.confidence * weights["meta"]!!
