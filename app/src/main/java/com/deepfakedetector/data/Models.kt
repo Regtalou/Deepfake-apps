@@ -28,11 +28,11 @@ enum class AnalysisStatus {
 }
 
 enum class VerdictLevel {
-    REAL,       // < 25%
-    LIKELY_REAL, // 25–45%
-    UNCERTAIN,  // 45–55%
-    LIKELY_FAKE, // 55–75%
-    FAKE        // > 75%
+    REAL,        // < 15%
+    LIKELY_REAL, // 15–30%
+    UNCERTAIN,   // 30–45%
+    LIKELY_FAKE, // 45–65%
+    FAKE         // > 65%
 }
 
 enum class AnomalySeverity(val weight: Float) {
@@ -58,8 +58,8 @@ data class Anomaly(
 
 @Serializable
 data class ModuleScore(
-    val score: Float,           // 0.0–1.0 → probabilité d'être FAKE
-    val confidence: Float,      // 0.0–1.0 → fiabilité de ce module
+    val score: Float,
+    val confidence: Float,
     val details: List<String>,
     val anomalies: List<Anomaly>,
     val processingTimeMs: Long = 0L
@@ -99,8 +99,8 @@ data class AnalysisResult(
     val videoPath: String,
     val videoName: String,
     val timestamp: Long = System.currentTimeMillis(),
-    val overallScore: Float,            // 0.0–1.0 → prob d'être FAKE
-    val confidenceScore: Float,         // 0.0–1.0
+    val overallScore: Float,
+    val confidenceScore: Float,
     val reliabilityLevel: ReliabilityLevel,
     val verdictLevel: VerdictLevel,
     val moduleScores: ModuleScores,
@@ -116,26 +116,27 @@ data class AnalysisResult(
     val confidenceScorePercent: Int get() = (confidenceScore * 100).toInt()
 
     val verdictText: String get() = when (verdictLevel) {
-        VerdictLevel.REAL -> "Vidéo probablement RÉELLE"
+        VerdictLevel.REAL        -> "Vidéo probablement RÉELLE"
         VerdictLevel.LIKELY_REAL -> "Vraisemblablement réelle"
-        VerdictLevel.UNCERTAIN -> "Résultat INCERTAIN"
+        VerdictLevel.UNCERTAIN   -> "Résultat INCERTAIN"
         VerdictLevel.LIKELY_FAKE -> "Probablement générée par IA"
-        VerdictLevel.FAKE -> "Vidéo très probablement FAKE"
+        VerdictLevel.FAKE        -> "Vidéo très probablement FAKE"
     }
 
     companion object {
+        // CORRECTION : seuils abaissés pour être plus sensible aux images IA modernes
         fun computeVerdictLevel(score: Float) = when {
-            score < 0.25f -> VerdictLevel.REAL
-            score < 0.45f -> VerdictLevel.LIKELY_REAL
-            score < 0.55f -> VerdictLevel.UNCERTAIN
-            score < 0.75f -> VerdictLevel.LIKELY_FAKE
-            else -> VerdictLevel.FAKE
+            score < 0.15f -> VerdictLevel.REAL
+            score < 0.30f -> VerdictLevel.LIKELY_REAL
+            score < 0.45f -> VerdictLevel.UNCERTAIN
+            score < 0.65f -> VerdictLevel.LIKELY_FAKE
+            else          -> VerdictLevel.FAKE
         }
 
         fun computeReliabilityLevel(confidence: Float) = when {
             confidence >= 0.75f -> ReliabilityLevel.RELIABLE
             confidence >= 0.50f -> ReliabilityLevel.UNCERTAIN
-            else -> ReliabilityLevel.SUSPICIOUS
+            else                -> ReliabilityLevel.SUSPICIOUS
         }
     }
 }
@@ -175,7 +176,7 @@ data class CommunityReport(
     val isViral: Boolean = false,
     val alreadyFlagged: Boolean = false,
     val flaggedCount: Int = 0,
-    val communityScore: Float? = null   // score communauté 0–1
+    val communityScore: Float? = null
 ) {
     val communityVerdict: String? get() {
         if (fakeVotes + realVotes < 5) return null
@@ -195,7 +196,7 @@ data class CommunityReport(
 data class BacktestVideo(
     val id: String,
     val uri: android.net.Uri,
-    val groundTruth: Boolean,   // true = FAKE, false = REAL
+    val groundTruth: Boolean,
     val label: String = if (groundTruth) "FAKE" else "RÉEL"
 )
 
@@ -213,7 +214,6 @@ data class BacktestReport(
     val results: List<BacktestResult>,
     val globalModuleWeights: Map<String, Float>
 ) {
-    // Calcul métriques
     val truePositives: Int get() = results.count { it.groundTruth && it.predictedFake }
     val trueNegatives: Int get() = results.count { !it.groundTruth && !it.predictedFake }
     val falsePositives: Int get() = results.count { !it.groundTruth && it.predictedFake }
@@ -263,15 +263,15 @@ data class BacktestReport(
 data class MultiModalInput(
     val imageUri: android.net.Uri,
     val text: String,
-    val sourcePlatform: String = "",     // "Twitter", "Instagram", etc.
+    val sourcePlatform: String = "",
     val capturedAt: Long = System.currentTimeMillis()
 )
 
 @Serializable
 data class MultiModalScores(
-    val image: ModuleScore? = null,       // Pipeline ImageAnalyzer
-    val text: ModuleScore? = null,        // Pipeline TextAnalyzer
-    val coherence: ModuleScore? = null    // Pipeline CoherenceAnalyzer
+    val image: ModuleScore? = null,
+    val text: ModuleScore? = null,
+    val coherence: ModuleScore? = null
 ) {
     fun allScores(): Map<String, ModuleScore> = buildMap {
         image?.let     { put("Image", it) }
@@ -284,7 +284,7 @@ data class MultiModalResult(
     val id: String,
     val input: MultiModalInput,
     val timestamp: Long = System.currentTimeMillis(),
-    val manipulationIndex: Float,       // 0.0–1.0 : indice de manipulation globale
+    val manipulationIndex: Float,
     val confidence: Float,
     val verdictLevel: VerdictLevel,
     val reliabilityLevel: ReliabilityLevel,
@@ -337,10 +337,10 @@ data class ImageMetadata(
 
 @Serializable
 data class ImageModuleScores(
-    val pixelAnalysis: ModuleScore? = null,      // FFT, bruit, sur-lissage
-    val statistics: ModuleScore? = null,          // histogramme, entropie
-    val artifactDetection: ModuleScore? = null,   // yeux, mains, motifs répétés
-    val metadataAnalysis: ModuleScore? = null     // EXIF, cohérence
+    val pixelAnalysis: ModuleScore? = null,
+    val statistics: ModuleScore? = null,
+    val artifactDetection: ModuleScore? = null,
+    val metadataAnalysis: ModuleScore? = null
 ) {
     fun allScores(): Map<String, ModuleScore> = buildMap {
         pixelAnalysis?.let { put("Analyse pixel", it) }
@@ -356,7 +356,7 @@ data class ImageAnalysisResult(
     val imagePath: String,
     val imageName: String,
     val timestamp: Long = System.currentTimeMillis(),
-    val overallScore: Float,            // 0.0–1.0 → probabilité IA
+    val overallScore: Float,
     val confidenceScore: Float,
     val reliabilityLevel: ReliabilityLevel,
     val verdictLevel: VerdictLevel,
@@ -379,7 +379,6 @@ data class ImageAnalysisResult(
     }
 }
 
-// Contenu universel — vidéo OU image
 sealed class DetectionContent {
     data class VideoContent(val result: AnalysisResult)   : DetectionContent()
     data class ImageContent(val result: ImageAnalysisResult) : DetectionContent()
