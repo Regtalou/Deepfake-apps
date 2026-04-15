@@ -1,74 +1,64 @@
 package com.deepfakedetector.analysis
 
 import android.graphics.Bitmap
-
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Service d'appel à l'API AI or Not (aiornot.com)
- * Retourne un score entre 0.0 (réel) et 1.0 (IA)
- * ou null si l'appel échoue (mode offline/quota dépassé)
- */
 @Singleton
 class AiOrNotService @Inject constructor() {
 
     companion object {
         private const val API_URL = "https://api.aiornot.com/v1/reports/image"
-        private const val TIMEOUT_MS = 15_000
+        private const val API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjIxMDk5NTdhLTkzNzUtNDM2OS04OWViLWQ2NDcwMmUyZjQ1MyIsInVzZXJfaWQiOiIzMjkzNzNiMC1iMTFiLTRkYzgtOWM1Mi05ODIyNjI1NDNmOTAiLCJhdWQiOiJhY2Nlc3MiLCJleHAiOjE5MzM5MTM4NjcsInNjb3BlIjoiYWxsIn0.vIiJN-WhBaTLrO75woUPo98-omW9YIkSM9P86MQTFr4"
     }
 
-    /**
-     * Analyse une image via l'API AI or Not.
-     * Retourne le score IA (0.0–1.0) ou null en cas d'erreur.
-     */
-    suspend fun analyze(bitmap: Bitmap): AiOrNotResult? = withContext(Dispatchers.IO) {
-        val apiKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjIxMDk5NTdhLTkzNzUtNDM2OS04OWViLWQ2NDcwMmUyZjQ1MyIsInVzZXJfaWQiOiIzMjkzNzNiMC1iMTFiLTRkYzgtOWM1Mi05ODIyNjI1NDNmOTAiLCJhdWQiOiJhY2Nlc3MiLCJleHAiOjE5MzM5MTM4NjcsInNjb3BlIjoiYWxsIn0.vIiJN-WhBaTLrO75woUPo98-omW9YIkSM9P86MQTFr4"
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
 
+    suspend fun analyze(bitmap: Bitmap): AiOrNotResult? = withContext(Dispatchers.IO) {
         try {
-            // Compression JPEG de l'image
             val imageBytes = compressBitmap(bitmap)
 
-            // Construction de la requête multipart
-            val boundary = "Boundary-${System.currentTimeMillis()}"
-            val url = URL(API_URL)
-            val conn = url.openConnection() as HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.setRequestProperty("Authorization", "Bearer $apiKey")
-            conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
-            conn.setRequestProperty("Accept", "application/json")
-            conn.connectTimeout = TIMEOUT_MS
-            conn.readTimeout = TIMEOUT_MS
-            conn.doOutput = true
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart(
+                    "object",
+                    "image.jpg",
+                    imageBytes.toRequestBody("image/jpeg".toMediaType())
+                )
+                .build()
 
-            // Écriture du body multipart
-            conn.outputStream.use { out ->
-                val prefix = "--$boundary\r\nContent-Disposition: form-data; name=\"object\"; filename=\"image.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n"
-                val suffix = "\r\n--$boundary--\r\n"
-                out.write(prefix.toByteArray())
-                out.write(imageBytes)
-                out.write(suffix.toByteArray())
-            }
+            val request = Request.Builder()
+                .url(API_URL)
+                .post(requestBody)
+                .addHeader("Authorization", "Bearer $API_KEY")
+                .addHeader("Accept", "application/json")
+                .build()
 
-            val responseCode = conn.responseCode
-            if (responseCode != 200) return@withContext null
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) return@withContext null
 
-            val responseBody = conn.inputStream.bufferedReader().readText()
-            parseResponse(responseBody)
+            val body = response.body?.string() ?: return@withContext null
+            parseResponse(body)
 
         } catch (e: Exception) {
-            null  // Echec silencieux — l'app fonctionne sans l'API
+            null
         }
     }
 
     private fun compressBitmap(bitmap: Bitmap): ByteArray {
-        // Redimensionne si trop grande pour économiser la bande passante
         val maxDim = 1024
         val scaled = if (bitmap.width > maxDim || bitmap.height > maxDim) {
             val ratio = minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height)
@@ -88,17 +78,31 @@ class AiOrNotService @Inject constructor() {
     private fun parseResponse(json: String): AiOrNotResult? {
         return try {
             val root = JSONObject(json)
-            val report = root.getJSONObject("report")
-            val aiObj = report.getJSONObject("ai")
-            val humanObj = report.getJSONObject("human")
-            val verdict = report.optString("verdict", "unknown")
-
-            AiOrNotResult(
-                aiScore = aiObj.getDouble("score").toFloat(),
-                humanScore = humanObj.getDouble("score").toFloat(),
-                verdict = verdict,
-                isAiDetected = aiObj.getBoolean("is_detected")
-            )
+            if (root.has("report")) {
+                val report = root.getJSONObject("report")
+                val aiObj = report.optJSONObject("ai")
+                val verdict = report.optString("verdict", "unknown")
+                if (aiObj != null) {
+                    val aiScore = aiObj.optDouble("score", 0.0).toFloat()
+                    return AiOrNotResult(
+                        aiScore = aiScore,
+                        humanScore = 1f - aiScore,
+                        verdict = verdict,
+                        isAiDetected = aiObj.optBoolean("is_detected", aiScore > 0.5f)
+                    )
+                }
+            }
+            if (root.has("score")) {
+                val aiScore = root.optDouble("score", 0.0).toFloat()
+                val verdict = root.optString("verdict", if (aiScore > 0.5f) "ai" else "human")
+                return AiOrNotResult(
+                    aiScore = aiScore,
+                    humanScore = 1f - aiScore,
+                    verdict = verdict,
+                    isAiDetected = aiScore > 0.5f
+                )
+            }
+            null
         } catch (e: Exception) {
             null
         }
@@ -106,8 +110,8 @@ class AiOrNotService @Inject constructor() {
 }
 
 data class AiOrNotResult(
-    val aiScore: Float,       // 0.0–1.0 : probabilité IA
-    val humanScore: Float,    // 0.0–1.0 : probabilité humain
-    val verdict: String,      // "ai" ou "human"
+    val aiScore: Float,
+    val humanScore: Float,
+    val verdict: String,
     val isAiDetected: Boolean
 )
