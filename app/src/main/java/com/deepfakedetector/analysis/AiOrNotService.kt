@@ -1,7 +1,7 @@
 package com.deepfakedetector.analysis
 
 import android.graphics.Bitmap
-import com.deepfakedetector.BuildConfig
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -29,8 +29,7 @@ class AiOrNotService @Inject constructor() {
      * Retourne le score IA (0.0–1.0) ou null en cas d'erreur.
      */
     suspend fun analyze(bitmap: Bitmap): AiOrNotResult? = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.AIORNOT_API_KEY
-        if (apiKey.isBlank()) return@withContext null
+        val apiKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjIxMDk5NTdhLTkzNzUtNDM2OS04OWViLWQ2NDcwMmUyZjQ1MyIsInVzZXJfaWQiOiIzMjkzNzNiMC1iMTFiLTRkYzgtOWM1Mi05ODIyNjI1NDNmOTAiLCJhdWQiOiJhY2Nlc3MiLCJleHAiOjE5MzM5MTM4NjcsInNjb3BlIjoiYWxsIn0.vIiJN-WhBaTLrO75woUPo98-omW9YIkSM9P86MQTFr4"
 
         try {
             // Compression JPEG de l'image
