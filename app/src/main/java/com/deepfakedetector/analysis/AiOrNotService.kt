@@ -23,12 +23,13 @@ class AiOrNotService @Inject constructor() {
     }
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
         .build()
 
     suspend fun analyze(bitmap: Bitmap): AiOrNotResult? = withContext(Dispatchers.IO) {
-        try {
+        runCatching {
             val imageBytes = compressBitmap(bitmap)
 
             val requestBody = MultipartBody.Builder()
@@ -48,18 +49,19 @@ class AiOrNotService @Inject constructor() {
                 .build()
 
             val response = client.newCall(request).execute()
-            if (!response.isSuccessful) return@withContext null
+            val body = response.body?.string() ?: return@runCatching null
 
-            val body = response.body?.string() ?: return@withContext null
+            if (!response.isSuccessful) {
+                // Tente quand même de parser si le body contient un score
+                return@runCatching parseResponse(body)
+            }
+
             parseResponse(body)
-
-        } catch (e: Exception) {
-            null
-        }
+        }.getOrNull()
     }
 
     private fun compressBitmap(bitmap: Bitmap): ByteArray {
-        val maxDim = 1024
+        val maxDim = 800
         val scaled = if (bitmap.width > maxDim || bitmap.height > maxDim) {
             val ratio = minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height)
             Bitmap.createScaledBitmap(
@@ -71,17 +73,19 @@ class AiOrNotService @Inject constructor() {
         } else bitmap
 
         return ByteArrayOutputStream().also { out ->
-            scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
+            scaled.compress(Bitmap.CompressFormat.JPEG, 80, out)
         }.toByteArray()
     }
 
     private fun parseResponse(json: String): AiOrNotResult? {
         return try {
             val root = JSONObject(json)
+
+            // Structure principale: { report: { ai: { score, is_detected }, verdict } }
             if (root.has("report")) {
                 val report = root.getJSONObject("report")
-                val aiObj = report.optJSONObject("ai")
                 val verdict = report.optString("verdict", "unknown")
+                val aiObj = report.optJSONObject("ai")
                 if (aiObj != null) {
                     val aiScore = aiObj.optDouble("score", 0.0).toFloat()
                     return AiOrNotResult(
@@ -91,7 +95,19 @@ class AiOrNotService @Inject constructor() {
                         isAiDetected = aiObj.optBoolean("is_detected", aiScore > 0.5f)
                     )
                 }
+                // Parfois le score est directement dans report
+                if (report.has("score")) {
+                    val aiScore = report.optDouble("score", 0.0).toFloat()
+                    return AiOrNotResult(
+                        aiScore = aiScore,
+                        humanScore = 1f - aiScore,
+                        verdict = verdict,
+                        isAiDetected = aiScore > 0.5f
+                    )
+                }
             }
+
+            // Structure alternative: { score, verdict }
             if (root.has("score")) {
                 val aiScore = root.optDouble("score", 0.0).toFloat()
                 val verdict = root.optString("verdict", if (aiScore > 0.5f) "ai" else "human")
@@ -102,6 +118,7 @@ class AiOrNotService @Inject constructor() {
                     isAiDetected = aiScore > 0.5f
                 )
             }
+
             null
         } catch (e: Exception) {
             null
