@@ -92,6 +92,10 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideAiOrNotService(): AiOrNotService = AiOrNotService()
+
+    @Provides
+    @Singleton
     fun provideMetadataAnalyzer(@ApplicationContext context: Context): MetadataAnalyzer =
         MetadataAnalyzer(context)
 
@@ -125,16 +129,18 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideImageAnalyzer(
+        @ApplicationContext context: Context,
+        aiOrNotService: AiOrNotService
+    ): ImageAnalyzer = ImageAnalyzer(context, aiOrNotService)
+
+    @Provides
+    @Singleton
     fun provideMultiModalAnalyzer(
         imageAnalyzer: ImageAnalyzer,
         textAnalyzer: TextAnalyzer,
         coherenceAnalyzer: CoherenceAnalyzer
     ): MultiModalAnalyzer = MultiModalAnalyzer(imageAnalyzer, textAnalyzer, coherenceAnalyzer)
-
-    @Provides
-    @Singleton
-    fun provideImageAnalyzer(@ApplicationContext context: Context): ImageAnalyzer =
-        ImageAnalyzer(context)
 
     @Provides
     @Singleton
