@@ -5,20 +5,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.*
 
-/**
- * ScoreFusionEngine — Fusion intelligente des scores multi-modules
- *
- * Algorithme :
- * 1. Pondération dynamique (ajustée selon disponibilité + fiabilité)
- * 2. Score global = moyenne pondérée par confiance
- * 3. Détection d'anomalies critiques (surcharge du score)
- * 4. Génération explication + findings clés
- * 5. Calibration anti-biais (éviter faux positifs systématiques)
- */
 @Singleton
 class ScoreFusionEngine @Inject constructor() {
 
-    // Poids de base des modules (total = 1.0)
     data class ModuleWeights(
         val metadata: Float = 0.12f,
         val pixel: Float = 0.25f,
@@ -37,7 +26,6 @@ class ScoreFusionEngine @Inject constructor() {
         )
     }
 
-    // Poids adaptatifs selon le mode
     private val weightsByMode = mapOf(
         AnalysisMode.INSTANT to ModuleWeights(
             metadata = 0.30f, pixel = 0.40f, temporal = 0.20f,
@@ -64,11 +52,8 @@ class ScoreFusionEngine @Inject constructor() {
     ): AnalysisResult {
 
         val baseWeights = weightsByMode[mode] ?: ModuleWeights()
-
-        // ─── ÉTAPE 1 : Redistribution des poids pour modules absents ──
         val activeWeights = computeActiveWeights(scores, baseWeights)
 
-        // ─── ÉTAPE 2 : Calcul score pondéré par confiance ─────────────
         var weightedScoreSum = 0f
         var totalEffectiveWeight = 0f
 
@@ -95,19 +80,15 @@ class ScoreFusionEngine @Inject constructor() {
             weightedScoreSum / totalEffectiveWeight
         } else 0.3f
 
-        // ─── ÉTAPE 3 : Boosters critiques ─────────────────────────────
-        // Certaines anomalies critiques doublent leur influence
+        // Boosters critiques renforcés
         val criticalBoost = computeCriticalBoost(scores)
-        globalScore = (globalScore + criticalBoost * 0.15f).coerceIn(0f, 1f)
+        globalScore = (globalScore + criticalBoost * 0.20f).coerceIn(0f, 1f)
 
-        // ─── ÉTAPE 4 : Calibration anti-biais ─────────────────────────
-        // Légère pression vers le centre pour les vidéos ambiguës
+        // CORRECTION : suppression de la calibration qui tirait les scores vers le bas
+        // On applique uniquement une légère correction si UN SEUL module actif
         globalScore = calibrate(globalScore, contributions.size)
 
-        // ─── ÉTAPE 5 : Score de confiance global ──────────────────────
         val confidenceScore = computeGlobalConfidence(scores, contributions.size, mode)
-
-        // ─── ÉTAPE 6 : Génération explication ─────────────────────────
         val explanation = generateExplanation(globalScore, scores, contributions, videoMetadata)
         val keyFindings = generateKeyFindings(scores, globalScore)
         val warnings = generateWarnings(scores, confidenceScore, contributions.size)
@@ -133,10 +114,6 @@ class ScoreFusionEngine @Inject constructor() {
         )
     }
 
-    // ─────────────────────────────────────────────────────────
-    // REDISTRIBUTION POIDS DYNAMIQUE
-    // ─────────────────────────────────────────────────────────
-
     private fun computeActiveWeights(scores: ModuleScores, base: ModuleWeights): ModuleWeights {
         val activeMap = mutableMapOf(
             "metadata" to if (scores.metadata != null) base.metadata else 0f,
@@ -150,7 +127,6 @@ class ScoreFusionEngine @Inject constructor() {
         val totalActive = activeMap.values.sum()
         if (totalActive <= 0f) return base
 
-        // Renormaliser pour que la somme = 1.0
         val normalized = activeMap.mapValues { (_, v) -> v / totalActive }
 
         return ModuleWeights(
@@ -163,10 +139,6 @@ class ScoreFusionEngine @Inject constructor() {
         )
     }
 
-    // ─────────────────────────────────────────────────────────
-    // BOOST CRITIQUES
-    // ─────────────────────────────────────────────────────────
-
     private fun computeCriticalBoost(scores: ModuleScores): Float {
         var boost = 0f
         val allModules = scores.allScores().values
@@ -174,14 +146,14 @@ class ScoreFusionEngine @Inject constructor() {
         allModules.forEach { module ->
             module.anomalies
                 .filter { it.severity == AnomalySeverity.CRITICAL }
-                .forEach { _ -> boost += 0.5f }
+                .forEach { _ -> boost += 0.6f }  // Augmenté de 0.5 à 0.6
         }
 
-        // Boost si plusieurs modules très élevés simultanément
-        val highScoreModules = allModules.count { it.score > 0.7f }
-        if (highScoreModules >= 3) boost += 0.3f
+        // Boost si plusieurs modules élevés simultanément — seuil abaissé à 0.5
+        val highScoreModules = allModules.count { it.score > 0.5f }
+        if (highScoreModules >= 3) boost += 0.4f   // Augmenté de 0.3 à 0.4
+        if (highScoreModules >= 2) boost += 0.2f   // Nouveau boost pour 2 modules suspects
 
-        // Boost encodeur IA (signal très fort)
         val hasAiEncoderAnomaly = scores.metadata?.anomalies?.any {
             it.type == "AI_ENCODER_SIGNATURE"
         } == true
@@ -190,26 +162,15 @@ class ScoreFusionEngine @Inject constructor() {
         return boost.coerceIn(0f, 1f)
     }
 
-    // ─────────────────────────────────────────────────────────
-    // CALIBRATION
-    // ─────────────────────────────────────────────────────────
-
     private fun calibrate(score: Float, moduleCount: Int): Float {
-        if (moduleCount < 2) {
-            // Peu de modules actifs → pression forte vers l'incertitude
-            return score * 0.7f + 0.3f * 0.5f
+        // CORRECTION : on ne tire plus les scores vers le bas
+        // Seul cas : 1 module actif → légère incertitude
+        return if (moduleCount <= 1) {
+            score * 0.90f + 0.10f * 0.5f
+        } else {
+            score  // Score intact pour 2+ modules
         }
-        if (moduleCount < 4) {
-            // Calibration légère
-            return score * 0.85f + 0.5f * 0.15f
-        }
-        // Score plein
-        return score
     }
-
-    // ─────────────────────────────────────────────────────────
-    // CONFIANCE GLOBALE
-    // ─────────────────────────────────────────────────────────
 
     private fun computeGlobalConfidence(
         scores: ModuleScores,
@@ -221,7 +182,6 @@ class ScoreFusionEngine @Inject constructor() {
 
         val avgModuleConfidence = moduleConfidences.average().toFloat()
 
-        // Pénalité si peu de modules actifs
         val moduleCoverageFactor = when (moduleCount) {
             0 -> 0.1f
             1 -> 0.4f
@@ -232,7 +192,6 @@ class ScoreFusionEngine @Inject constructor() {
             else -> 0.95f
         }
 
-        // Bonus mode complet
         val modeBonus = when (mode) {
             AnalysisMode.INSTANT -> 0.0f
             AnalysisMode.FAST -> 0.05f
@@ -241,10 +200,6 @@ class ScoreFusionEngine @Inject constructor() {
 
         return (avgModuleConfidence * moduleCoverageFactor + modeBonus).coerceIn(0f, 1f)
     }
-
-    // ─────────────────────────────────────────────────────────
-    // GÉNÉRATION EXPLICATION
-    // ─────────────────────────────────────────────────────────
 
     private fun generateExplanation(
         score: Float,
@@ -255,34 +210,33 @@ class ScoreFusionEngine @Inject constructor() {
         val sb = StringBuilder()
 
         when {
-            score >= 0.75f -> {
+            score >= 0.65f -> {
                 sb.appendLine("🔴 Cette vidéo présente de fortes caractéristiques d'une génération par intelligence artificielle.")
                 sb.appendLine()
                 sb.appendLine("Notre analyse multi-couches a identifié plusieurs indicateurs convergents :")
             }
-            score >= 0.55f -> {
+            score >= 0.45f -> {
                 sb.appendLine("🟡 Cette vidéo présente certains signes suspects qui pourraient indiquer une manipulation ou une génération par IA.")
                 sb.appendLine()
                 sb.appendLine("Les anomalies détectées sont les suivantes :")
             }
-            score >= 0.45f -> {
+            score >= 0.35f -> {
                 sb.appendLine("🟡 Les résultats sont ambigus. Nous ne pouvons pas conclure avec certitude.")
                 sb.appendLine()
-                sb.appendLine("Certains éléments attirent l'attention, mais ils ne sont pas suffisamment convergents :")
+                sb.appendLine("Certains éléments attirent l'attention :")
             }
-            score >= 0.25f -> {
+            score >= 0.20f -> {
                 sb.appendLine("🟢 Cette vidéo présente principalement les caractéristiques d'une vidéo authentique.")
                 sb.appendLine()
-                sb.appendLine("Quelques points méritent néanmoins attention :")
+                sb.appendLine("Quelques points méritent attention :")
             }
             else -> {
                 sb.appendLine("🟢 Cette vidéo présente toutes les caractéristiques d'une vidéo réelle et authentique.")
                 sb.appendLine()
-                sb.appendLine("Aucune anomalie significative n'a été détectée dans les modules analysés.")
+                sb.appendLine("Aucune anomalie significative n'a été détectée.")
             }
         }
 
-        // Anomalies principales
         val allAnomalies = scores.allScores().values
             .flatMap { it.anomalies }
             .sortedByDescending { it.severity.weight }
@@ -301,14 +255,13 @@ class ScoreFusionEngine @Inject constructor() {
             }
         }
 
-        // Contexte vidéo
         if (metadata.encoder != null) {
             sb.appendLine()
             sb.appendLine("Encodeur détecté : ${metadata.encoder}")
         }
 
         sb.appendLine()
-        sb.appendLine("⚠️ Rappel : Cette analyse est automatisée et peut comporter des erreurs. Elle ne constitue pas une preuve légale.")
+        sb.appendLine("⚠️ Rappel : Cette analyse est automatisée et peut comporter des erreurs.")
 
         return sb.toString().trim()
     }
@@ -316,9 +269,8 @@ class ScoreFusionEngine @Inject constructor() {
     private fun generateKeyFindings(scores: ModuleScores, globalScore: Float): List<String> {
         val findings = mutableListOf<String>()
 
-        // Top anomalies
         scores.allScores().forEach { (moduleName, module) ->
-            if (module.score > 0.5f) {
+            if (module.score > 0.4f) {  // Seuil abaissé de 0.5 à 0.4
                 findings.add("Module $moduleName : ${(module.score * 100).toInt()}% suspect")
             }
             module.anomalies
