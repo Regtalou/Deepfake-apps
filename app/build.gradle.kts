@@ -111,9 +111,9 @@ dependencies {
 
     // TensorFlow Lite
     implementation(libs.tensorflow.lite)
-    implementation(libs.tensorflow.lite.support)
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
     implementation(libs.tensorflow.lite.gpu)
-    implementation(libs.tensorflow.lite.task.vision)
+    implementation("org.tensorflow:tensorflow-lite-task-vision:0.4.4")
 
     // DataStore
     implementation(libs.datastore.preferences)
