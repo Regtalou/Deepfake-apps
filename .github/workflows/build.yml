@@ -1,11 +1,9 @@
 name: Android Build
-
 on:
   push:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,6 +22,8 @@ jobs:
           key: gradle-${{ hashFiles('**/*.gradle*') }}
       - run: chmod +x gradlew
       - run: ./gradlew assembleDebug --stacktrace
+        env:
+          AIORNOT_API_KEY: ${{ secrets.AIORNOT_API_KEY }}
       - uses: actions/upload-artifact@v4
         with:
           name: DeepfakeDetector-debug
